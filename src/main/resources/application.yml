@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: relay
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/relay}
+    username: ${DB_USER:relay}
+    password: ${DB_PASSWORD:relay}
+  threads:
+    virtual:
+      enabled: true
+  task:
+    scheduling:
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  shutdown: graceful
+
+relay:
+  worker:
+    enabled: ${WORKER_ENABLED:true}
+    batch-size: 20
+    poll-interval-ms: 1000
+    sweep-interval-ms: 30000
+    stuck-after-ms: 120000
+  delivery:
+    timeout-ms: 5000
+  retry:
+    max-attempts: 5
+    # Backoff is (2^attempts) * this unit.
+    unit-ms: 1000
+
+logging:
+  level:
+    com.relay: INFO

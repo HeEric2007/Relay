@@ -1,0 +1,8 @@
+build/
+.gradle/
+
+# Local tooling, kept out of the repo
+*.log
+.DS_Store
+.idea/
+*.iml
