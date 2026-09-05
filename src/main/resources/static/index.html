@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Relay</title>
+    <style>
+        :root {
+            --bg: #10131a;
+            --panel: #171b24;
+            --border: #262c38;
+            --text: #e6e9ef;
+            --muted: #8b93a7;
+            --pending: #d6a419;
+            --delivering: #3b82f6;
+            --delivered: #22c55e;
+            --dead: #ef4444;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+        }
+
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        h2 { font-size: 13px; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+        p.lede { color: var(--muted); margin: 0 0 24px; }
+
+        .counts { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+
+        .count {
+            flex: 1 1 140px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 16px;
+        }
+
+        .count[data-status="pending"] { border-left-color: var(--pending); }
+        .count[data-status="delivering"] { border-left-color: var(--delivering); }
+        .count[data-status="delivered"] { border-left-color: var(--delivered); }
+        .count[data-status="dead"] { border-left-color: var(--dead); }
+
+        .count .total { font-size: 26px; }
+        .count .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+
+        .panels { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+
+        section {
+            flex: 1 1 380px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+        }
+
+        label { display: block; color: var(--muted); font-size: 12px; margin: 0 0 4px; }
+
+        input, textarea, button {
+            font: inherit;
+            width: 100%;
+            padding: 8px 10px;
+            margin-bottom: 12px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        textarea { min-height: 72px; resize: vertical; }
+
+        button {
+            cursor: pointer;
+            background: #2b62d9;
+            border-color: #2b62d9;
+            color: #fff;
+            margin-bottom: 0;
+        }
+
+        button:hover { background: #3a72ea; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: normal; }
+        td { font-size: 13px; word-break: break-all; }
+
+        .status { font-weight: bold; }
+        .status[data-status="pending"] { color: var(--pending); }
+        .status[data-status="delivering"] { color: var(--delivering); }
+        .status[data-status="delivered"] { color: var(--delivered); }
+        .status[data-status="dead"] { color: var(--dead); }
+
+        td button { width: auto; padding: 4px 10px; font-size: 12px; }
+
+        .secret {
+            background: #1d2a1f;
+            border: 1px solid var(--delivered);
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 12px;
+            font-size: 12px;
+            word-break: break-all;
+        }
+
+        .empty { color: var(--muted); padding: 12px 0; }
+    </style>
+</head>
+<body>
+<h1>Relay</h1>
+<p class="lede">Webhook delivery &mdash; refreshes every 2s.</p>
+
+<div class="counts" id="counts"></div>
+
+<div class="panels">
+    <section>
+        <h2>Register endpoint</h2>
+        <form id="endpoint-form">
+            <label for="endpoint-url">Endpoint URL</label>
+            <input id="endpoint-url" name="url" type="url" required placeholder="https://example.com/hooks">
+
+            <label for="endpoint-types">Event types (comma separated, blank = all)</label>
+            <input id="endpoint-types" name="eventTypes" type="text" placeholder="invoice.paid, user.created">
+
+            <button type="submit">Register</button>
+        </form>
+        <div id="new-secret"></div>
+    </section>
+
+    <section>
+        <h2>Send event</h2>
+        <form id="event-form">
+            <label for="event-type">Event type</label>
+            <input id="event-type" name="type" type="text" required value="invoice.paid">
+
+            <label for="event-payload">Payload (JSON)</label>
+            <textarea id="event-payload" name="payload" required>{"amount": 4200, "currency": "usd"}</textarea>
+
+            <button type="submit">Submit event</button>
+        </form>
+    </section>
+</div>
+
+<section>
+    <h2>Endpoints</h2>
+    <div id="endpoints"></div>
+</section>
+
+<section style="margin-top: 16px;">
+    <h2>Recent deliveries</h2>
+    <div id="deliveries"></div>
+</section>
+
+<script>
+    const STATUSES = ["pending", "delivering", "delivered", "dead"];
+
+    function esc(value) {
+        if (value === null || value === undefined) {
+            return "";
+        }
+        return String(value)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    }
+
+    function shortId(id) {
+        return id.slice(0, 8);
+    }
+
+    function clockTime(isoTimestamp) {
+        if (!isoTimestamp) {
+            return "";
+        }
+        return new Date(isoTimestamp).toLocaleTimeString();
+    }
+
+    function renderCounts(counts) {
+        const cards = STATUSES.map(status => `
+            <div class="count" data-status="${status}">
+                <div class="total">${counts[status] ?? 0}</div>
+                <div class="label">${status}</div>
+            </div>`);
+        document.getElementById("counts").innerHTML = cards.join("");
+    }
+
+    function renderEndpoints(endpoints) {
+        if (endpoints.length === 0) {
+            document.getElementById("endpoints").innerHTML =
+                '<p class="empty">No endpoints registered yet.</p>';
+            return;
+        }
+
+        const rows = endpoints.map(endpoint => `
+            <tr>
+                <td>${esc(shortId(endpoint.id))}</td>
+                <td>${esc(endpoint.url)}</td>
+                <td>${endpoint.eventTypes.length ? esc(endpoint.eventTypes.join(", ")) : "all"}</td>
+                <td>${endpoint.active ? "active" : "paused"}</td>
+            </tr>`);
+
+        document.getElementById("endpoints").innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">URL</th>
+                        <th scope="col">Event types</th>
+                        <th scope="col">State</th>
+                    </tr>
+                </thead>
+                <tbody>${rows.join("")}</tbody>
+            </table>`;
+    }
+
+    function renderDeliveries(deliveries) {
+        if (deliveries.length === 0) {
+            document.getElementById("deliveries").innerHTML =
+                '<p class="empty">No deliveries yet. Register an endpoint, then send an event.</p>';
+            return;
+        }
+
+        const rows = deliveries.map(delivery => {
+            const retryButton = delivery.status === "dead"
+                ? `<button type="button" data-retry="${esc(delivery.id)}">Retry</button>`
+                : "";
+            return `
+                <tr>
+                    <td>${esc(shortId(delivery.id))}</td>
+                    <td class="status" data-status="${esc(delivery.status)}">${esc(delivery.status)}</td>
+                    <td>${delivery.attempts}</td>
+                    <td>${esc(delivery.lastStatusCode ?? "")}</td>
+                    <td>${esc(delivery.lastError ?? "")}</td>
+                    <td>${esc(clockTime(delivery.runAt))}</td>
+                    <td>${retryButton}</td>
+                </tr>`;
+        });
+
+        document.getElementById("deliveries").innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Attempts</th>
+                        <th scope="col">Code</th>
+                        <th scope="col">Last error</th>
+                        <th scope="col">Next run</th>
+                        <th scope="col"></th>
+                    </tr>
+                </thead>
+                <tbody>${rows.join("")}</tbody>
+            </table>`;
+    }
+
+    async function refresh() {
+        const [board, endpoints] = await Promise.all([
+            fetch("/deliveries?limit=50").then(response => response.json()),
+            fetch("/endpoints").then(response => response.json())
+        ]);
+        renderCounts(board.counts);
+        renderDeliveries(board.deliveries);
+        renderEndpoints(endpoints);
+    }
+
+    async function postJson(path, body) {
+        const response = await fetch(path, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body)
+        });
+        const text = await response.text();
+        if (!response.ok) {
+            throw new Error(text);
+        }
+        return text ? JSON.parse(text) : null;
+    }
+
+    document.getElementById("endpoint-form").addEventListener("submit", async event => {
+        event.preventDefault();
+        const url = document.getElementById("endpoint-url").value;
+        const typesInput = document.getElementById("endpoint-types").value;
+        const eventTypes = typesInput.split(",").map(type => type.trim()).filter(type => type !== "");
+
+        try {
+            const created = await postJson("/endpoints", {url, eventTypes});
+            document.getElementById("new-secret").innerHTML =
+                `<div class="secret">Signing secret (shown once):<br>${esc(created.secret)}</div>`;
+            document.getElementById("endpoint-form").reset();
+            await refresh();
+        } catch (error) {
+            alert("Could not register endpoint: " + error.message);
+        }
+    });
+
+    document.getElementById("event-form").addEventListener("submit", async event => {
+        event.preventDefault();
+        const type = document.getElementById("event-type").value;
+        const rawPayload = document.getElementById("event-payload").value;
+
+        let payload;
+        try {
+            payload = JSON.parse(rawPayload);
+        } catch (error) {
+            alert("Payload is not valid JSON.");
+            return;
+        }
+
+        try {
+            await postJson("/events", {type, payload});
+            await refresh();
+        } catch (error) {
+            alert("Could not submit event: " + error.message);
+        }
+    });
+
+    document.getElementById("deliveries").addEventListener("click", async event => {
+        const deliveryId = event.target.dataset.retry;
+        if (!deliveryId) {
+            return;
+        }
+        try {
+            await postJson(`/deliveries/${deliveryId}/retry`, undefined);
+            await refresh();
+        } catch (error) {
+            alert("Could not retry: " + error.message);
+        }
+    });
+
+    refresh();
+    setInterval(refresh, 2000);
+</script>
+</body>
+</html>
