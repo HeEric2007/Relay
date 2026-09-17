@@ -10,6 +10,10 @@ sweeper returns its rows to `pending` and another worker finishes the job.
 
 Java 21 · Spring Boot 3 · PostgreSQL · Flyway · `JdbcClient` (no JPA)
 
+**Live demo:** https://relay-2s95.onrender.com — register an endpoint, send it
+an event, watch the delivery retry and dead-letter. It runs on a free instance
+that sleeps when idle, so the first load takes about a minute to wake.
+
 ## Run
 
 ```bash
