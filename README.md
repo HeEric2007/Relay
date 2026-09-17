@@ -19,6 +19,10 @@ docker compose up --build
 Starts Postgres, two worker replicas, and the API plus dashboard on
 http://localhost:8080.
 
+The dashboard registers endpoints, submits events, and shows every
+delivery with its event type, status code and error. Click an event type
+to read the payload that was sent.
+
 ## API
 
 | Method | Path | Purpose |
@@ -27,6 +31,7 @@ http://localhost:8080.
 | `GET` | `/endpoints` | List endpoints |
 | `GET` | `/endpoints/{id}/deliveries` | Delivery log with response codes and errors |
 | `POST` | `/events` | Submit an event; fans out to matching endpoints |
+| `GET` | `/events/{id}` | The event and its payload |
 | `GET` | `/deliveries/{id}` | Status, attempts, next retry time |
 | `POST` | `/deliveries/{id}/retry` | Resurrect a dead delivery |
 
@@ -74,5 +79,18 @@ add `JAVA_TOOL_OPTIONS=-Dapi.version=1.44`.
 ## Deploy
 
 One image runs either role, selected by `--relay.worker.enabled`. See
-[fly.toml](fly.toml) for the `api` and `worker` process definitions. Set
-`DB_URL`, `DB_USER`, and `DB_PASSWORD` in the environment.
+[fly.toml](fly.toml) for the `api` and `worker` process definitions.
+
+```bash
+fly launch --no-deploy --copy-config     # keeps the committed fly.toml
+fly postgres create --name relay-db      # or point at any reachable Postgres
+fly secrets set \
+  DB_URL="jdbc:postgresql://relay-db.flycast:5432/relay" \
+  DB_USER="postgres" \
+  DB_PASSWORD="..."
+fly deploy
+fly scale count api=1 worker=2
+```
+
+Nothing is Fly-specific: any host works given those three variables and a
+Postgres it can reach.
