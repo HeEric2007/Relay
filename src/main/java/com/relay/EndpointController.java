@@ -66,7 +66,7 @@ public class EndpointController {
     }
 
     @GetMapping("/{id}/deliveries")
-    List<Delivery> deliveryLog(@PathVariable UUID id, @RequestParam(defaultValue = "100") int limit) {
+    List<DeliveryLogRow> deliveryLog(@PathVariable UUID id, @RequestParam(defaultValue = "100") int limit) {
         endpoints.findById(id).orElseThrow(() -> new NoSuchElementException("no endpoint " + id));
         return deliveries.findByEndpoint(id, Math.min(limit, MAX_PAGE));
     }

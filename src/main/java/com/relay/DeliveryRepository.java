@@ -16,6 +16,14 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class DeliveryRepository {
 
+    /** The log views join events so a row says which event it carries, not just an id. */
+    private static final String LOG_ROW_SELECT = """
+            select d.id, d.event_id, e.type as event_type, d.endpoint_id, d.status,
+                   d.attempts, d.run_at, d.last_status_code, d.last_error, d.created_at
+              from deliveries d
+              join events e on e.id = d.event_id
+            """;
+
     private final JdbcClient db;
 
     DeliveryRepository(JdbcClient db) {
@@ -151,23 +159,22 @@ public class DeliveryRepository {
                 .optional();
     }
 
-    public List<Delivery> findByEndpoint(UUID endpointId, int limit) {
-        return db.sql("""
-                select * from deliveries
-                 where endpoint_id = :endpointId
-                 order by created_at desc
+    public List<DeliveryLogRow> findByEndpoint(UUID endpointId, int limit) {
+        return db.sql(LOG_ROW_SELECT + """
+                 where d.endpoint_id = :endpointId
+                 order by d.created_at desc
                  limit :limit
                 """)
                 .param("endpointId", endpointId)
                 .param("limit", limit)
-                .query(DeliveryRepository::mapRow)
+                .query(DeliveryRepository::mapLogRow)
                 .list();
     }
 
-    public List<Delivery> findRecent(int limit) {
-        return db.sql("select * from deliveries order by created_at desc limit :limit")
+    public List<DeliveryLogRow> findRecent(int limit) {
+        return db.sql(LOG_ROW_SELECT + " order by d.created_at desc limit :limit")
                 .param("limit", limit)
-                .query(DeliveryRepository::mapRow)
+                .query(DeliveryRepository::mapLogRow)
                 .list();
     }
 
@@ -185,6 +192,20 @@ public class DeliveryRepository {
             counts.put(row.getKey(), row.getValue());
         }
         return counts;
+    }
+
+    static DeliveryLogRow mapLogRow(ResultSet rs, int rowNum) throws SQLException {
+        return new DeliveryLogRow(
+                rs.getObject("id", UUID.class),
+                rs.getObject("event_id", UUID.class),
+                rs.getString("event_type"),
+                rs.getObject("endpoint_id", UUID.class),
+                rs.getString("status"),
+                rs.getInt("attempts"),
+                instantAt(rs, "run_at"),
+                (Integer) rs.getObject("last_status_code"),
+                rs.getString("last_error"),
+                instantAt(rs, "created_at"));
     }
 
     static Delivery mapRow(ResultSet rs, int rowNum) throws SQLException {

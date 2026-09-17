@@ -26,7 +26,7 @@ public class DeliveryController {
         this.deliveries = deliveries;
     }
 
-    record DeliveryBoard(Map<String, Long> counts, List<Delivery> deliveries) {
+    record DeliveryBoard(Map<String, Long> counts, List<DeliveryLogRow> deliveries) {
     }
 
     @GetMapping("/{id}")

@@ -136,6 +136,28 @@ class DeliveryFlowTest extends IntegrationTest {
     }
 
     @Test
+    void theDeliveryLogNamesTheEventAndThePayloadIsReadable() {
+        receiver.stubFor(post(HOOK).willReturn(aResponse().withStatus(200)));
+        EndpointController.RegisteredEndpoint endpoint = register(List.of("invoice.paid"));
+
+        EventController.SubmittedEvent submitted = submitEvent("invoice.paid", "{\"amount\":4200}");
+        awaitStatus(onlyDeliveryOf(submitted), "delivered");
+
+        DeliveryLogRow[] log = http.getForObject(
+                "/endpoints/" + endpoint.id() + "/deliveries", DeliveryLogRow[].class);
+
+        assertThat(log).hasSize(1);
+        assertThat(log[0].eventType()).isEqualTo("invoice.paid");
+        assertThat(log[0].eventId()).isEqualTo(submitted.eventId());
+
+        EventController.EventView event = http.getForObject(
+                "/events/" + submitted.eventId(), EventController.EventView.class);
+
+        assertThat(event.type()).isEqualTo("invoice.paid");
+        assertThat(event.payload().get("amount").asInt()).isEqualTo(4200);
+    }
+
+    @Test
     void rejectsAnEndpointUrlThatIsNotHttp() {
         ResponseEntity<String> response = http.postForEntity(
                 "/endpoints", Map.of("url", "ftp://example.test/hook"), String.class);

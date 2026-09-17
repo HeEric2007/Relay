@@ -98,6 +98,42 @@
 
         td button { width: auto; padding: 4px 10px; font-size: 12px; }
 
+        /* The event type doubles as the control that opens the payload. */
+        td button.event-type {
+            background: none;
+            border: none;
+            color: var(--text);
+            padding: 0;
+            text-align: left;
+            text-decoration: underline dotted var(--muted);
+            text-underline-offset: 3px;
+        }
+
+        td button.event-type:hover { background: none; color: var(--delivering); }
+
+        dialog {
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            max-width: min(560px, 90vw);
+        }
+
+        dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+        dialog pre {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px;
+            margin: 0 0 12px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+
+        dialog button { width: auto; padding: 4px 12px; font-size: 12px; }
+
         .secret {
             background: #1d2a1f;
             border: 1px solid var(--delivered);
@@ -155,6 +191,12 @@
     <h2>Recent deliveries</h2>
     <div id="deliveries"></div>
 </section>
+
+<dialog id="event-dialog">
+    <h2 id="event-dialog-title">Event</h2>
+    <pre id="event-dialog-payload"></pre>
+    <button type="button" id="event-dialog-close">Close</button>
+</dialog>
 
 <script>
     const STATUSES = ["pending", "delivering", "delivered", "dead"];
@@ -233,6 +275,7 @@
             return `
                 <tr>
                     <td>${esc(shortId(delivery.id))}</td>
+                    <td><button type="button" class="event-type" data-event="${esc(delivery.eventId)}">${esc(delivery.eventType)}</button></td>
                     <td class="status" data-status="${esc(delivery.status)}">${esc(delivery.status)}</td>
                     <td>${delivery.attempts}</td>
                     <td>${esc(delivery.lastStatusCode ?? "")}</td>
@@ -247,6 +290,7 @@
                 <thead>
                     <tr>
                         <th scope="col">ID</th>
+                        <th scope="col">Event</th>
                         <th scope="col">Status</th>
                         <th scope="col">Attempts</th>
                         <th scope="col">Code</th>
@@ -320,7 +364,30 @@
         }
     });
 
+    async function showEventPayload(eventId) {
+        try {
+            const response = await fetch(`/events/${eventId}`);
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+            const loaded = await response.json();
+            document.getElementById("event-dialog-title").textContent =
+                `${loaded.type} \u00b7 ${shortId(loaded.id)}`;
+            document.getElementById("event-dialog-payload").textContent =
+                JSON.stringify(loaded.payload, null, 2);
+            document.getElementById("event-dialog").showModal();
+        } catch (error) {
+            alert("Could not load event: " + error.message);
+        }
+    }
+
     document.getElementById("deliveries").addEventListener("click", async event => {
+        const eventId = event.target.dataset.event;
+        if (eventId) {
+            await showEventPayload(eventId);
+            return;
+        }
+
         const deliveryId = event.target.dataset.retry;
         if (!deliveryId) {
             return;
@@ -331,6 +398,10 @@
         } catch (error) {
             alert("Could not retry: " + error.message);
         }
+    });
+
+    document.getElementById("event-dialog-close").addEventListener("click", () => {
+        document.getElementById("event-dialog").close();
     });
 
     refresh();
