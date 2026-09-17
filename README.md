@@ -3,6 +3,23 @@
 A webhook delivery service. Register an endpoint, submit an event, and Relay
 delivers it by HTTP POST — with retries, dead-lettering, and a signed body.
 
+```
+POST /events
+     │
+     ▼
+  events ──fan out──▶ deliveries (pending)
+                            │
+                     SKIP LOCKED claim
+                            ▼
+                         worker ──POST──▶ your endpoint
+                            │
+             2xx ───────────┴─────────── non-2xx
+              │                             │
+          delivered                  retry 2^n s, 5×
+                                            │
+                                          dead
+```
+
 Postgres is both the store and the queue. Workers claim deliveries with
 `SELECT ... FOR UPDATE SKIP LOCKED`, so the pool scales horizontally with no
 broker and no coordination between replicas. If a worker dies mid-attempt, a
@@ -36,6 +53,7 @@ to read the payload that was sent.
 | `GET` | `/endpoints/{id}/deliveries` | Delivery log with response codes and errors |
 | `POST` | `/events` | Submit an event; fans out to matching endpoints |
 | `GET` | `/events/{id}` | The event and its payload |
+| `GET` | `/deliveries` | Status counts and the recent delivery log |
 | `GET` | `/deliveries/{id}` | Status, attempts, next retry time |
 | `POST` | `/deliveries/{id}/retry` | Resurrect a dead delivery |
 
@@ -82,34 +100,20 @@ add `JAVA_TOOL_OPTIONS=-Dapi.version=1.44`.
 
 ## Deploy
 
-The app reads three variables — `DB_URL`, `DB_USER`, `DB_PASSWORD` — and
-nothing else, so any host with a reachable Postgres works.
+Three variables — `DB_URL`, `DB_USER`, `DB_PASSWORD` — and any reachable
+Postgres. Nothing else.
 
-### Free: Render + Neon
+**Free:** [render.yaml](render.yaml) declares one Render web service; pair it
+with a Neon database. Neon gives you a single `postgresql://user:pass@host/db`
+string — split it across the three variables, prefix the URL with `jdbc:`, and
+keep `?sslmode=require`.
 
-[render.yaml](render.yaml) declares one free web service. Create a Neon
-project, then point Render at this repo as a Blueprint and paste the three
-values when it prompts:
+That one free instance runs the API, the dashboard and the worker together,
+and sleeps after 15 minutes idle. **Deliveries only retry while it is awake**,
+so one backing off overnight resumes on the next visit. That is a demo
+compromise, not how this is meant to run.
 
-```
-DB_URL       jdbc:postgresql://<host>.neon.tech/<db>?sslmode=require
-DB_USER      <neon user>
-DB_PASSWORD  <neon password>
-```
-
-Neon hands you one `postgresql://user:pass@host/db` string — split it into the
-three fields above and keep `?sslmode=require`, which Neon requires.
-
-That single instance runs the API, the dashboard and the worker together.
-Render's free plan allows 750 instance-hours a month per workspace, which
-covers one service running continuously, not two. It sleeps after 15 minutes
-idle and takes about a minute to wake, and **deliveries only retry while it is
-awake** — a delivery backing off while nobody is watching resumes on the next
-visit. That is a demo compromise, not how the thing is meant to run.
-
-### Split processes
-
-[docker-compose.yml](docker-compose.yml) and [fly.toml](fly.toml) run the API
-and the workers as separate processes, selected by `--relay.worker.enabled`,
-with the worker pool scaled independently. That is the real shape: N workers
-claiming from one table, no coordination between them.
+**Properly:** [docker-compose.yml](docker-compose.yml) and [fly.toml](fly.toml)
+run the API and the workers as separate processes, selected by
+`--relay.worker.enabled`, with the worker pool scaled on its own. That is the
+real shape — N workers claiming from one table, no coordination between them.
