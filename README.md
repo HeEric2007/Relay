@@ -78,19 +78,34 @@ add `JAVA_TOOL_OPTIONS=-Dapi.version=1.44`.
 
 ## Deploy
 
-One image runs either role, selected by `--relay.worker.enabled`. See
-[fly.toml](fly.toml) for the `api` and `worker` process definitions.
+The app reads three variables — `DB_URL`, `DB_USER`, `DB_PASSWORD` — and
+nothing else, so any host with a reachable Postgres works.
 
-```bash
-fly launch --no-deploy --copy-config     # keeps the committed fly.toml
-fly postgres create --name relay-db      # or point at any reachable Postgres
-fly secrets set \
-  DB_URL="jdbc:postgresql://relay-db.flycast:5432/relay" \
-  DB_USER="postgres" \
-  DB_PASSWORD="..."
-fly deploy
-fly scale count api=1 worker=2
+### Free: Render + Neon
+
+[render.yaml](render.yaml) declares one free web service. Create a Neon
+project, then point Render at this repo as a Blueprint and paste the three
+values when it prompts:
+
+```
+DB_URL       jdbc:postgresql://<host>.neon.tech/<db>?sslmode=require
+DB_USER      <neon user>
+DB_PASSWORD  <neon password>
 ```
 
-Nothing is Fly-specific: any host works given those three variables and a
-Postgres it can reach.
+Neon hands you one `postgresql://user:pass@host/db` string — split it into the
+three fields above and keep `?sslmode=require`, which Neon requires.
+
+That single instance runs the API, the dashboard and the worker together.
+Render's free plan allows 750 instance-hours a month per workspace, which
+covers one service running continuously, not two. It sleeps after 15 minutes
+idle and takes about a minute to wake, and **deliveries only retry while it is
+awake** — a delivery backing off while nobody is watching resumes on the next
+visit. That is a demo compromise, not how the thing is meant to run.
+
+### Split processes
+
+[docker-compose.yml](docker-compose.yml) and [fly.toml](fly.toml) run the API
+and the workers as separate processes, selected by `--relay.worker.enabled`,
+with the worker pool scaled independently. That is the real shape: N workers
+claiming from one table, no coordination between them.
