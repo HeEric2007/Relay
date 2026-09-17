@@ -12,6 +12,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
+        // WireMock receivers live on loopback, which the SSRF check refuses by default.
+        "relay.endpoints.allow-private-hosts=true",
         "relay.worker.poll-interval-ms=50",
         "relay.worker.sweep-interval-ms=50",
         "relay.worker.stuck-after-ms=300",

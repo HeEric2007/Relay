@@ -22,6 +22,11 @@ server:
   shutdown: graceful
 
 relay:
+  endpoints:
+    # Deliveries go wherever a registered URL points, so private addresses are
+    # refused: otherwise anyone can use this to probe the network it runs in.
+    # Tests point at WireMock on loopback and turn this on.
+    allow-private-hosts: ${ALLOW_PRIVATE_HOSTS:false}
   worker:
     enabled: ${WORKER_ENABLED:true}
     batch-size: 20

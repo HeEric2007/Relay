@@ -1,13 +1,16 @@
 package com.relay;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,10 +29,14 @@ public class EndpointController {
 
     private final EndpointRepository endpoints;
     private final DeliveryRepository deliveries;
+    private final boolean allowPrivateHosts;
 
-    EndpointController(EndpointRepository endpoints, DeliveryRepository deliveries) {
+    EndpointController(EndpointRepository endpoints,
+                       DeliveryRepository deliveries,
+                       @Value("${relay.endpoints.allow-private-hosts}") boolean allowPrivateHosts) {
         this.endpoints = endpoints;
         this.deliveries = deliveries;
+        this.allowPrivateHosts = allowPrivateHosts;
     }
 
     record RegisterEndpoint(String url, List<String> eventTypes) {
@@ -71,7 +78,7 @@ public class EndpointController {
         return deliveries.findByEndpoint(id, Math.min(limit, MAX_PAGE));
     }
 
-    private static String requireDeliverableUrl(String rawUrl) {
+    private String requireDeliverableUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
             throw new IllegalArgumentException("url is required");
         }
@@ -87,9 +94,38 @@ public class EndpointController {
         if (!isHttp || url.getHost() == null) {
             throw new IllegalArgumentException("url must be an absolute http(s) URL");
         }
-        // TODO: add an SSRF denylist (localhost, RFC1918, 169.254.169.254) before accepting
-        // endpoints from untrusted tenants.
+        requirePublicHost(url.getHost());
         return url.toString();
+    }
+
+    /**
+     * Anyone can register an endpoint, and the worker will POST to whatever it says, so a
+     * private address would turn this service into a probe for the network it runs in.
+     * Resolving here only settles what the name means right now — a host that resolves
+     * publicly at registration can point somewhere private by delivery time, which is why
+     * a hardened deployment repeats this check as it connects.
+     */
+    private void requirePublicHost(String host) {
+        if (allowPrivateHosts) {
+            return;
+        }
+
+        InetAddress[] addresses;
+        try {
+            addresses = InetAddress.getAllByName(host);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("url host does not resolve: " + host);
+        }
+
+        for (InetAddress address : addresses) {
+            if (address.isLoopbackAddress()
+                    || address.isAnyLocalAddress()
+                    || address.isLinkLocalAddress()
+                    || address.isSiteLocalAddress()
+                    || address.isMulticastAddress()) {
+                throw new IllegalArgumentException("url must resolve to a public address");
+            }
+        }
     }
 
     private static List<String> cleanEventTypes(List<String> requested) {

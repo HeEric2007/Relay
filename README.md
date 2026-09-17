@@ -67,6 +67,11 @@ curl -X POST localhost:8080/events -H 'Content-Type: application/json' \
 
 An empty `eventTypes` means "send me everything".
 
+The API itself is unauthenticated — this is the provider-side service, assumed
+to sit behind your own auth. Endpoint URLs must resolve to a public address:
+loopback, link-local and private ranges are refused, so the service cannot be
+pointed at the network it runs in.
+
 ## Delivery rules
 
 - Any 2xx is `delivered`. Anything else records the status code and retries.
