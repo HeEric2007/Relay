@@ -1,0 +1,18 @@
+# One free instance runs the API, the dashboard and the worker together.
+# Render's free plan allows 750 instance-hours a month across the workspace,
+# which covers one service running around the clock, not two. The api/worker
+# split this is actually built for lives in docker-compose.yml and fly.toml.
+services:
+  - type: web
+    name: relay
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      # Entered in the dashboard on first deploy, never stored in the repo.
+      - key: DB_URL
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
