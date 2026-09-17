@@ -7,6 +7,8 @@ services:
     name: relay
     runtime: docker
     plan: free
+    # Same region as the Neon project, or every query crosses the country.
+    region: ohio
     healthCheckPath: /
     envVars:
       # Entered in the dashboard on first deploy, never stored in the repo.
